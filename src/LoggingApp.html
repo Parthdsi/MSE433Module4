@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EP Lab Case Logger</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    input[type="number"]::-webkit-inner-spin-button { opacity: 1; height: 32px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+const { useState, useEffect } = React;
+
+const API_BASE = "http://localhost:5001";
+
+const PHYSICIANS = ["Dr. A", "Dr. B", "Dr. C"];
+const TSP_DIFFICULTY = ["Easy", "Moderate", "Hard"];
+const DELAY_REASONS = ["None", "Anesthesia", "Equipment", "Room Setup", "Patient Condition"];
+const COMPLEXITY_NOTES = ["", "BOX", "PST BOX", "CTI", "SVC", "AAFL", "AAFL, PST BOX", "PST BOX, SVC"];
+
+function Toggle({ label, value, onChange, yesLabel, noLabel }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <span className="text-sm font-medium text-gray-700">{label}</span>
+      <div className="flex rounded-lg overflow-hidden border border-gray-300">
+        <button
+          type="button"
+          onClick={() => onChange("Y")}
+          className={`px-4 py-2 text-sm font-semibold transition-colors ${
+            value === "Y" ? "bg-emerald-500 text-white" : "bg-white text-gray-500"
+          }`}
+        >
+          {yesLabel || "Y"}
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange("N")}
+          className={`px-4 py-2 text-sm font-semibold transition-colors ${
+            value === "N" ? "bg-gray-500 text-white" : "bg-white text-gray-500"
+          }`}
+        >
+          {noLabel || "N"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NumberField({ label, value, onChange, unit, placeholder }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <label className="text-sm font-medium text-gray-700 flex-shrink-0 mr-3">{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder || "0"}
+          className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-right text-sm focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+        />
+        {unit && <span className="text-xs text-gray-400 w-8">{unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+function TimeField({ label, value, onChange }) {
+  return (
+    <div className="flex items-center justify-between py-2">
+      <label className="text-sm font-medium text-gray-700 flex-shrink-0 mr-3">{label}</label>
+      <input
+        type="time"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
+      />
+    </div>
+  );
+}
+
+function SectionHeader({ step, title, subtitle, color }) {
+  return (
+    <div className={`flex items-center gap-3 mb-4`}>
+      <div className={`w-8 h-8 rounded-full ${color} text-white flex items-center justify-center text-sm font-bold flex-shrink-0`}>
+        {step}
+      </div>
+      <div>
+        <h2 className="text-lg font-bold text-gray-900">{title}</h2>
+        {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+      </div>
+    </div>
+  );
+}
+
+const INITIAL = {
+  case_number: "",
+  date: new Date().toISOString().slice(0, 10),
+  physician: "Dr. A",
+  note: "",
+  first_case_of_day: "Y",
+  obesity: "N",
+  sleep_apnea: "N",
+  fasting_not_confirmed: "N",
+  bloodwork_incomplete: "N",
+  equipment_prestaged: "Y",
+  anesthesia_ready: "Y",
+  pt_prep: "",
+  access: "",
+  tsp: "",
+  pre_map: "",
+  abl_duration: "",
+  abl_time: "",
+  num_abl: "",
+  la_dwell_time: "",
+  case_time: "",
+  tsp_difficulty: "Easy",
+  arterial_line_time_min: "",
+  equipment_issue: "N",
+  equipment_issue_detail: "",
+  post_care: "",
+  pt_in_out: "",
+  patient_out_time: "",
+  pacu_called_time: "",
+  cleaning_start_time: "",
+  cleaning_end_time: "",
+  cleaning_duration_min: "",
+  delay_reason: "None",
+};
+
+function App() {
+  const [form, setForm] = useState({...INITIAL});
+  const [phase, setPhase] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(null);
+  const [logCount, setLogCount] = useState(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/log/count`).then(r => r.json()).then(d => setLogCount(d.count)).catch(() => {});
+  }, [saved]);
+
+  function set(key, val) {
+    setForm(prev => ({...prev, [key]: val}));
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/log`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      setSaved(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleNewCase() {
+    const nextCase = form.case_number ? String(Number(form.case_number) + 1) : "";
+    setForm({...INITIAL, case_number: nextCase, date: form.date, physician: form.physician, first_case_of_day: "N"});
+    setPhase(0);
+    setSaved(false);
+  }
+
+  const phases = ["Pre-Case", "Procedure", "Post & Wrap-Up"];
+
+  if (saved) {
+    return (
+      <div className="min-h-screen bg-emerald-50 flex items-center justify-center px-4">
+        <div className="text-center">
+          <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-1">Case Saved</h2>
+          <p className="text-gray-500 mb-1">Case #{form.case_number} — {form.physician} — {form.date}</p>
+          {form.pt_in_out && <p className="text-gray-500 mb-6">PT IN-OUT: {form.pt_in_out} min</p>}
+          <button onClick={handleNewCase} className="w-full py-4 rounded-xl bg-indigo-600 text-white font-bold text-lg shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
+            Log Next Case
+          </button>
+          <button onClick={() => { setForm({...INITIAL}); setPhase(0); setSaved(false); }} className="w-full mt-3 py-3 rounded-xl bg-white border border-gray-300 text-gray-600 font-semibold hover:bg-gray-50 transition-all">
+            Start Fresh
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-lg mx-auto px-4 py-6">
+        {/* Header */}
+        <div className="text-center mb-4">
+          <h1 className="text-2xl font-bold text-gray-900">EP Lab Case Logger</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Log each case to build real training data
+            {logCount !== null && <span className="ml-1">— {logCount} cases logged</span>}
+          </p>
+        </div>
+
+        {/* Phase stepper */}
+        <div className="flex items-center justify-between mb-6 bg-white rounded-xl shadow-sm border border-gray-200 p-2">
+          {phases.map((name, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setPhase(i)}
+              className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold transition-all ${
+                phase === i
+                  ? "bg-indigo-600 text-white shadow-md"
+                  : i < phase
+                  ? "bg-indigo-100 text-indigo-700"
+                  : "text-gray-400"
+              }`}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+
+        {/* Phase 0: Pre-Case */}
+        {phase === 0 && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="1" title="Case Info" subtitle="Basic identifiers" color="bg-indigo-600" />
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Case #</label>
+                    <input type="number" value={form.case_number} onChange={e => set("case_number", e.target.value)}
+                      className="w-full px-3 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" placeholder="e.g. 151" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                    <input type="date" value={form.date} onChange={e => set("date", e.target.value)}
+                      className="w-full px-3 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-400" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Physician</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PHYSICIANS.map(doc => (
+                      <button key={doc} type="button" onClick={() => set("physician", doc)}
+                        className={`py-3 rounded-lg text-sm font-semibold border-2 transition-all ${
+                          form.physician === doc ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-gray-50 text-gray-600"
+                        }`}>{doc}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Procedure Note</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {COMPLEXITY_NOTES.map(n => (
+                      <button key={n} type="button" onClick={() => set("note", n)}
+                        className={`py-2 px-1 rounded-lg text-xs font-semibold border-2 transition-all ${
+                          form.note === n ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-gray-200 bg-gray-50 text-gray-600"
+                        }`}>{n || "Standard"}</button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="2" title="Pre-Case Flags" subtitle="Fill before the patient arrives" color="bg-amber-500" />
+              <Toggle label="First case of the day?" value={form.first_case_of_day} onChange={v => set("first_case_of_day", v)} />
+              <Toggle label="Obesity" value={form.obesity} onChange={v => set("obesity", v)} />
+              <Toggle label="Sleep Apnea" value={form.sleep_apnea} onChange={v => set("sleep_apnea", v)} />
+              <Toggle label="Fasting Not Confirmed" value={form.fasting_not_confirmed} onChange={v => set("fasting_not_confirmed", v)} />
+              <Toggle label="Bloodwork Incomplete" value={form.bloodwork_incomplete} onChange={v => set("bloodwork_incomplete", v)} />
+              <Toggle label="Equipment Pre-staged" value={form.equipment_prestaged} onChange={v => set("equipment_prestaged", v)} />
+              <Toggle label="Anesthesia Team Ready" value={form.anesthesia_ready} onChange={v => set("anesthesia_ready", v)} />
+            </div>
+
+            <button type="button" onClick={() => setPhase(1)}
+              className="w-full py-4 rounded-xl bg-indigo-600 text-white font-bold text-lg shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
+              Next: Procedure Timing
+            </button>
+          </div>
+        )}
+
+        {/* Phase 1: During Procedure */}
+        {phase === 1 && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="3" title="Procedure Timing" subtitle="Record durations in minutes" color="bg-blue-600" />
+              <NumberField label="PT Prep / Intubation" value={form.pt_prep} onChange={v => set("pt_prep", v)} unit="min" />
+              <NumberField label="Access" value={form.access} onChange={v => set("access", v)} unit="min" />
+              <NumberField label="TSP" value={form.tsp} onChange={v => set("tsp", v)} unit="min" />
+              <NumberField label="Pre-Map" value={form.pre_map} onChange={v => set("pre_map", v)} unit="min" />
+              <NumberField label="Ablation Duration" value={form.abl_duration} onChange={v => set("abl_duration", v)} unit="min" />
+              <NumberField label="Ablation Time" value={form.abl_time} onChange={v => set("abl_time", v)} unit="min" />
+              <NumberField label="# Ablations" value={form.num_abl} onChange={v => set("num_abl", v)} unit="#" />
+              <NumberField label="LA Dwell Time" value={form.la_dwell_time} onChange={v => set("la_dwell_time", v)} unit="min" />
+              <NumberField label="Case Time" value={form.case_time} onChange={v => set("case_time", v)} unit="min" />
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="4" title="Complications" subtitle="TSP access and equipment" color="bg-orange-500" />
+              <div className="py-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">TSP Difficulty</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {TSP_DIFFICULTY.map(d => (
+                    <button key={d} type="button" onClick={() => set("tsp_difficulty", d)}
+                      className={`py-2 rounded-lg text-sm font-semibold border-2 transition-all ${
+                        form.tsp_difficulty === d ? "border-orange-500 bg-orange-50 text-orange-700" : "border-gray-200 bg-gray-50 text-gray-600"
+                      }`}>{d}</button>
+                  ))}
+                </div>
+              </div>
+              <NumberField label="Arterial Line Time" value={form.arterial_line_time_min} onChange={v => set("arterial_line_time_min", v)} unit="min" />
+              <Toggle label="Equipment Issue?" value={form.equipment_issue} onChange={v => set("equipment_issue", v)} />
+              {form.equipment_issue === "Y" && (
+                <div className="mt-2">
+                  <input type="text" value={form.equipment_issue_detail} onChange={e => set("equipment_issue_detail", e.target.value)}
+                    placeholder="Describe the issue..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-400" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setPhase(0)}
+                className="flex-1 py-4 rounded-xl bg-white border border-gray-300 text-gray-600 font-bold text-lg hover:bg-gray-50 transition-all">
+                Back
+              </button>
+              <button type="button" onClick={() => setPhase(2)}
+                className="flex-2 py-4 rounded-xl bg-indigo-600 text-white font-bold text-lg shadow-lg hover:bg-indigo-700 transition-all active:scale-95 flex-grow">
+                Next: Post & Wrap-Up
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Phase 2: Post Procedure */}
+        {phase === 2 && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="5" title="Post-Procedure" subtitle="Recovery and total time" color="bg-emerald-600" />
+              <NumberField label="Post Care / Extubation" value={form.post_care} onChange={v => set("post_care", v)} unit="min" />
+              <div className="border-t border-gray-200 mt-3 pt-3">
+                <NumberField label="PT IN-OUT (total)" value={form.pt_in_out} onChange={v => set("pt_in_out", v)} unit="min" />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+              <SectionHeader step="6" title="Wrap-Up" subtitle="Timestamps and room turnover" color="bg-violet-600" />
+              <TimeField label="Patient Out Time" value={form.patient_out_time} onChange={v => set("patient_out_time", v)} />
+              <TimeField label="PACU Called Time" value={form.pacu_called_time} onChange={v => set("pacu_called_time", v)} />
+              <TimeField label="Cleaning Start" value={form.cleaning_start_time} onChange={v => set("cleaning_start_time", v)} />
+              <TimeField label="Cleaning End" value={form.cleaning_end_time} onChange={v => set("cleaning_end_time", v)} />
+              <NumberField label="Cleaning Duration" value={form.cleaning_duration_min} onChange={v => set("cleaning_duration_min", v)} unit="min" />
+              <div className="py-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Delay Reason</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {DELAY_REASONS.map(d => (
+                    <button key={d} type="button" onClick={() => set("delay_reason", d)}
+                      className={`py-2 px-1 rounded-lg text-xs font-semibold border-2 transition-all ${
+                        form.delay_reason === d ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 bg-gray-50 text-gray-600"
+                      }`}>{d}</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {error && (
+              <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                <p className="text-red-700 text-sm text-center">{error}</p>
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setPhase(1)}
+                className="flex-1 py-4 rounded-xl bg-white border border-gray-300 text-gray-600 font-bold text-lg hover:bg-gray-50 transition-all">
+                Back
+              </button>
+              <button type="button" onClick={handleSave} disabled={saving}
+                className={`flex-grow py-4 rounded-xl text-white font-bold text-lg shadow-lg transition-all active:scale-95 ${
+                  saving ? "bg-gray-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}>
+                {saving ? "Saving..." : "Save Case"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <p className="text-center text-xs text-gray-400 mt-8">
+          MSE 433 — EP Lab Data Collection App
+        </p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
