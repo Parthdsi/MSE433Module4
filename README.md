@@ -84,15 +84,3 @@ python3 scheduling_eda.py
 ```
 
 Plots get saved to `model/eda_plots/`.
-
-## Quick overview of the two models
-
-**Model 1** uses only data the hospital already has — which physician, what position the case is in the day, and how complex the procedure is. Best model was Linear Regression with an MAE of about 12 minutes.
-
-**Model 2** adds pre-case flags that would come from our logging app (obesity, sleep apnea, fasting status, etc.). These are currently simulated/synthetic, so Model 2 doesn't beat Model 1 yet. The idea is that once the logging app collects real data for 30+ days, Model 2 gets retrained and should improve.
-
-## Notes
-
-- The API must be running for the web apps to work — they call `localhost:5001` for predictions
-- The `.pkl` files are already included so you don't have to retrain unless you want to
-- Logged cases from the logging app get saved to `model/logged_cases.csv`
